@@ -1,0 +1,381 @@
+{
+  "name": "Best Time Analyzer - Analisis Waktu Posting",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "95b8c7ec-0141-4429-8058-f10b2c6e621e",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        160,
+        128
+      ]
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "18WvUKWXXOXHBVkqlPnppmI8bKXm89XBwkwy_lO7gLmA",
+          "mode": "list",
+          "cachedResultName": "Best Time to Post Data_",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/18WvUKWXXOXHBVkqlPnppmI8bKXm89XBwkwy_lO7gLmA/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Data Posting",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/18WvUKWXXOXHBVkqlPnppmI8bKXm89XBwkwy_lO7gLmA/edit#gid=0"
+        },
+        "options": {}
+      },
+      "id": "a6efaa3a-8813-4dcd-b428-8eded4605746",
+      "name": "Baca Data Posting",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        400,
+        128
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "Ek1E1AI6JEvtB8tP",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Ambil semua data dari Google Sheets\nconst items = $input.all();\n\nconsole.log('Total items:', items.length);\n\n// Validasi data\nif (!items || items.length === 0) {\n  throw new Error('Tidak ada data yang dibaca dari Google Sheets!');\n}\n\n// Log sample data untuk debugging\nconsole.log('Sample first item:', JSON.stringify(items[0].json));\n\n// Object untuk menyimpan data per jam\nconst hourlyData = {};\n\n// Counter untuk tracking\nlet processedCount = 0;\nlet skippedCount = 0;\n\n// Proses setiap row data\nitems.forEach((item, index) => {\n  try {\n    // Get data dengan berbagai kemungkinan nama kolom\n    const rawData = item.json;\n    \n    // Coba berbagai nama kolom yang mungkin\n    const hour = rawData['Jam Posting'] || rawData['jam posting'] || rawData['Jam'] || rawData['jam'];\n    const likes = parseInt(rawData['Likes'] || rawData['likes'] || 0);\n    const comments = parseInt(rawData['Comments'] || rawData['comments'] || 0);\n    const shares = parseInt(rawData['Shares'] || rawData['shares'] || 0);\n    const platform = rawData['Platform'] || rawData['platform'] || 'Unknown';\n    \n    // Skip jika jam tidak valid atau undefined\n    if (hour === undefined || hour === null || hour === '') {\n      console.log(`Skipping row ${index + 1}: hour is undefined`);\n      skippedCount++;\n      return;\n    }\n    \n    // Convert hour ke number jika string\n    const hourNum = typeof hour === 'number' ? hour : parseInt(hour);\n    \n    // Validasi hour range (0-23)\n    if (isNaN(hourNum) || hourNum < 0 || hourNum > 23) {\n      console.log(`Skipping row ${index + 1}: invalid hour ${hour}`);\n      skippedCount++;\n      return;\n    }\n    \n    // Hitung total engagement (bobot: likes x1, comments x2, shares x3)\n    const engagement = likes + (comments * 2) + (shares * 3);\n    \n    // Initialize data untuk jam ini jika belum ada\n    if (!hourlyData[hourNum]) {\n      hourlyData[hourNum] = {\n        hour: hourNum,\n        totalEngagement: 0,\n        count: 0,\n        totalLikes: 0,\n        totalComments: 0,\n        totalShares: 0,\n        platforms: {}\n      };\n    }\n    \n    // Akumulasi data\n    hourlyData[hourNum].totalEngagement += engagement;\n    hourlyData[hourNum].count += 1;\n    hourlyData[hourNum].totalLikes += likes;\n    hourlyData[hourNum].totalComments += comments;\n    hourlyData[hourNum].totalShares += shares;\n    \n    // Track platform distribution\n    if (!hourlyData[hourNum].platforms[platform]) {\n      hourlyData[hourNum].platforms[platform] = 0;\n    }\n    hourlyData[hourNum].platforms[platform] += 1;\n    \n    processedCount++;\n    \n  } catch (error) {\n    console.error(`Error processing row ${index + 1}:`, error.message);\n    skippedCount++;\n  }\n});\n\nconsole.log(`Processed: ${processedCount}, Skipped: ${skippedCount}`);\n\n// Validasi hasil\nif (Object.keys(hourlyData).length === 0) {\n  throw new Error(`Tidak ada data valid yang bisa diproses! Processed: ${processedCount}, Skipped: ${skippedCount}`);\n}\n\n// Hitung rata-rata dan buat array\nconst results = Object.values(hourlyData).map(data => {\n  const mostUsedPlatform = Object.keys(data.platforms).reduce((a, b) => \n    data.platforms[a] > data.platforms[b] ? a : b\n  );\n  \n  return {\n    jam: `${String(data.hour).padStart(2, '0')}:00`,\n    avgEngagement: Math.round(data.totalEngagement / data.count),\n    jumlahPost: data.count,\n    avgLikes: Math.round(data.totalLikes / data.count),\n    avgComments: Math.round(data.totalComments / data.count),\n    avgShares: Math.round(data.totalShares / data.count),\n    platformTerbanyak: mostUsedPlatform,\n    engagementScore: Math.round((data.totalEngagement / data.count) * 100) / 100\n  };\n});\n\n// Sort berdasarkan engagement tertinggi\nresults.sort((a, b) => b.avgEngagement - a.avgEngagement);\n\n// Ambil top 10 jam terbaik\nconst top10 = results.slice(0, 10);\n\n// Tambahkan ranking\nconst rankedResults = top10.map((item, index) => ({\n  ranking: index + 1,\n  ...item,\n  rekomendasi: index < 3 ? '⭐ SANGAT DIREKOMENDASIKAN' : index < 5 ? '✅ DIREKOMENDASIKAN' : '👍 CUKUP BAIK'\n}));\n\n// Tambahkan timestamp analisis\nconst analysisDate = new Date().toLocaleString('id-ID', {\n  timeZone: 'Asia/Jakarta',\n  year: 'numeric',\n  month: '2-digit',\n  day: '2-digit',\n  hour: '2-digit',\n  minute: '2-digit'\n});\n\nconst finalResults = rankedResults.map(item => ({\n  ...item,\n  tanggalAnalisis: analysisDate,\n  totalDataDianalisis: processedCount\n}));\n\nconsole.log('Final results count:', finalResults.length);\n\nreturn finalResults.map(item => ({ json: item }));\n"
+      },
+      "id": "277f3c29-c581-476e-89cc-e41855a631a9",
+      "name": "Analisis Waktu Terbaik",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        640,
+        128
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "clear",
+        "documentId": {
+          "__rl": true,
+          "value": "18WvUKWXXOXHBVkqlPnppmI8bKXm89XBwkwy_lO7gLmA",
+          "mode": "list",
+          "cachedResultName": "Best Time to Post Data_",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/18WvUKWXXOXHBVkqlPnppmI8bKXm89XBwkwy_lO7gLmA/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 723653925,
+          "mode": "list",
+          "cachedResultName": "Hasil Analisis",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/18WvUKWXXOXHBVkqlPnppmI8bKXm89XBwkwy_lO7gLmA/edit#gid=723653925"
+        }
+      },
+      "id": "52fb68b3-abd7-42f4-bf15-51a4721f44df",
+      "name": "Hapus Hasil Lama",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        880,
+        128
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "Ek1E1AI6JEvtB8tP",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "18WvUKWXXOXHBVkqlPnppmI8bKXm89XBwkwy_lO7gLmA",
+          "mode": "list",
+          "cachedResultName": "Best Time to Post Data_",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/18WvUKWXXOXHBVkqlPnppmI8bKXm89XBwkwy_lO7gLmA/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 723653925,
+          "mode": "list",
+          "cachedResultName": "Hasil Analisis",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/18WvUKWXXOXHBVkqlPnppmI8bKXm89XBwkwy_lO7gLmA/edit#gid=723653925"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "jam": "={{ $json.jam }}",
+            "avgEngagement": "={{ $json.avgEngagement }}",
+            "jumlahPost": "={{ $json.jumlahPost }}",
+            "avgLikes": "={{ $json.avgLikes }}",
+            "avgComments": "={{ $json.avgComments }}",
+            "avgShares": "={{ $json.avgShares }}",
+            "platformTerbanyak": "={{ $json.platformTerbanyak }}",
+            "engagementScore": "={{ $json.engagementScore }}",
+            "rekomendasi": "={{ $json.rekomendasi }}",
+            "tanggalAnalisis": "={{ $json.tanggalAnalisis }}",
+            "totalDataDianalisis": "={{ $json.totalDataDianalisis }}"
+          },
+          "matchingColumns": [
+            "jam"
+          ],
+          "schema": [
+            {
+              "id": "jam",
+              "displayName": "jam",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "avgEngagement",
+              "displayName": "avgEngagement",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "jumlahPost",
+              "displayName": "jumlahPost",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "avgLikes",
+              "displayName": "avgLikes",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "avgComments",
+              "displayName": "avgComments",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "avgShares",
+              "displayName": "avgShares",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "platformTerbanyak",
+              "displayName": "platformTerbanyak",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "engagementScore",
+              "displayName": "engagementScore",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "rekomendasi",
+              "displayName": "rekomendasi",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "tanggalAnalisis",
+              "displayName": "tanggalAnalisis",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "totalDataDianalisis",
+              "displayName": "totalDataDianalisis",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "c57822fd-bd5f-47a9-992e-c0f7e427b27a",
+      "name": "Tulis Hasil Analisis",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        1120,
+        128
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "Ek1E1AI6JEvtB8tP",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Ambil seluruh item/jam dari node sebelumnya\nconst items = $input.all();\n\nif (!items || items.length === 0) {\n  return [{ json: { message: '📊 *HASIL ANALISIS WAKTU POSTING TERBAIK*\\n\\nTidak ada data.' } }];\n}\n\n// Ambil maksimal 5 jam terbaik\nconst tops = items.slice(0, 5);\n\n// Susun teks per jam\nlet detailJam = '';\ntops.forEach((item, index) => {\n  const d = item.json;\n  detailJam += `\\n⏰ *JAM ${d.jam || 'N/A'}*\\n` +\n              `📈 Avg Engagement: ${d.avgEngagement || 0}\\n` +\n              `❤️ Avg Likes: ${d.avgLikes || 0}\\n` +\n              `💬 Avg Comments: ${d.avgComments || 0}\\n` +\n              `🔄 Avg Shares: ${d.avgShares || 0}\\n` +\n              `📱 Platform: ${d.platformTerbanyak || 'Instagram'}\\n` +\n              `📊 Total Post: ${d.jumlahPost || 0} post\\n` +\n              `⭐ ${d.rekomendasi || 'SANGAT DIREKOMENDASIKAN'}\\n`;\n});\n\n// Format pesan lengkap sesuai gambar modul\nconst pesanAkhir = `📊 *HASIL ANALISIS WAKTU POSTING TERBAIK*\\n` +\n                   `___________________________________\\n\\n` +\n                   `🏆 *TOP 5 JAM TERBAIK:*\\n` +\n                   detailJam;\n\nreturn [{ json: { message: pesanAkhir } }];"
+      },
+      "id": "20523cba-f238-4144-b453-761a313d0c53",
+      "name": "Format Pesan Telegram",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1360,
+        128
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "6148926352",
+        "text": "={{ $json.message }}",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "dc65182a-2bd5-40c1-98fa-16517d1d58c5",
+      "name": "Send a text message",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1600,
+        128
+      ],
+      "webhookId": "eb726601-abe6-4bb9-9f53-9d4cc15090a3",
+      "credentials": {
+        "telegramApi": {
+          "id": "MaYerBErBVLHH2iD",
+          "name": "Telegram account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Baca Data Posting",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Baca Data Posting": {
+      "main": [
+        [
+          {
+            "node": "Analisis Waktu Terbaik",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Analisis Waktu Terbaik": {
+      "main": [
+        [
+          {
+            "node": "Hapus Hasil Lama",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hapus Hasil Lama": {
+      "main": [
+        [
+          {
+            "node": "Tulis Hasil Analisis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tulis Hasil Analisis": {
+      "main": [
+        [
+          {
+            "node": "Format Pesan Telegram",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Pesan Telegram": {
+      "main": [
+        [
+          {
+            "node": "Send a text message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "3b7ea7b0-a946-4e9a-9586-357e6e7fda32",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "dc96f10ae7dc95d3c138575ba243a0a167923dbcb524841d451aadf9135d5fb3"
+  },
+  "nodeGroups": [],
+  "id": "3a0cYK24SaDKeRTi",
+  "tags": []
+}
